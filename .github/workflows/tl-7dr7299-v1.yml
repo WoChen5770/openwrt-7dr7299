@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: 0 20 * * *
-
+    
 env:
   REPO_URL: https://github.com/1715173329/imoutowrt.git
   REPO_BRANCH: master-mediatek-7dr7299
@@ -19,7 +19,6 @@ env:
 jobs:
   Build:
     runs-on: ubuntu-latest
-
     steps:
     - name: Check Server Performance(检查服务器性能)
       run: |
