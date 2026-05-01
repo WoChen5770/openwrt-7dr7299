@@ -13,7 +13,7 @@ env:
   REPO_BRANCH: master-mediatek-7dr7299
   CONFIG_FILE: configs/tl-7dr7299-v1.config
   DIY_SCRIPT: diy-script.sh
-  CACHE_TOOLCHAIN: true
+  CACHE_TOOLCHAIN: false
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
   FIRMWARE_TAG: TL-7DR7299-v1
