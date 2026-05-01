@@ -38,9 +38,8 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        # 先禁用 snap，防止脚本执行时卡住
         sudo mkdir -p /etc/apt/preferences.d
-        sudo cat > /etc/apt/preferences.d/nosnap.pref << 'EOF'
+        sudo tee /etc/apt/preferences.d/nosnap.pref > /dev/null << 'EOF'
         Package: snapd
         Pin: release a=*
         Pin-Priority: -10
