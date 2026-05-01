@@ -3,8 +3,11 @@ name: TL-7DR7299-v1
 on:
   workflow_dispatch:
   schedule:
-    - cron: 0 20 * * *
-    
+    - cron: '0 20 * * *'
+
+permissions:
+  contents: write
+
 env:
   REPO_URL: https://github.com/1715173329/imoutowrt.git
   REPO_BRANCH: master-mediatek-7dr7299
@@ -46,8 +49,7 @@ jobs:
         EOF
         sudo apt-get purge -y snapd
         sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-        sudo -E apt -yqq install dos2unix
-        sudo -E apt -yqq install libfuse-dev
+        sudo -E apt -yqq install dos2unix libfuse-dev
         sudo -E apt -yqq autoremove --purge
         sudo -E apt -yqq autoclean
         sudo -E apt -yqq clean
@@ -62,7 +64,7 @@ jobs:
         root-reserve-mb: 1024
 
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: Clone Source Code(克隆源代码)
       run: |
@@ -72,21 +74,6 @@ jobs:
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
         echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
-
-    - name: Generate Variables(生成变量)
-      run: |
-        cp $CONFIG_FILE $OPENWRT_PATH/.config
-        cd $OPENWRT_PATH
-        make defconfig > /dev/null 2>&1
-        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
-        SOURCE_REPO="${SOURCE_REPO%.git}"
-        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
-        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
-        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
-        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-        DEVICE_PROFILE=$(grep '^CONFIG_TARGET_.*DEVICE_.*=y$' .config | sed 's/^CONFIG_TARGET_//; s/=y$//' | tail -n 1)
-        echo "DEVICE_PROFILE=$DEVICE_PROFILE" >> $GITHUB_ENV
 
     - name: Update Feeds(更新feeds)
       run: |
@@ -99,6 +86,21 @@ jobs:
         [ -e files ] && mv files $OPENWRT_PATH/files
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE $OPENWRT_PATH/.config
         [ -e $DIY_SCRIPT ] && chmod +x $DIY_SCRIPT && cd $OPENWRT_PATH && $GITHUB_WORKSPACE/$DIY_SCRIPT
+        cd $OPENWRT_PATH
+        make defconfig
+
+    - name: Generate Variables(生成变量)
+      run: |
+        cd $OPENWRT_PATH
+        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
+        SOURCE_REPO="${SOURCE_REPO%.git}"
+        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        DEVICE_TARGET=$(grep CONFIG_TARGET_BOARD .config | awk -F '"' '{print $2}')
+        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        DEVICE_SUBTARGET=$(grep CONFIG_TARGET_SUBTARGET .config | awk -F '"' '{print $2}')
+        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+        DEVICE_PROFILE=$(grep '^CONFIG_TARGET_.*DEVICE_.*=y$' .config | sed 's/^CONFIG_TARGET_//; s/=y$//' | tail -n 1)
+        echo "DEVICE_PROFILE=$DEVICE_PROFILE" >> $GITHUB_ENV
 
     - name: Cache Toolchain(缓存工具链)
       if: env.CACHE_TOOLCHAIN == 'true'
@@ -111,7 +113,6 @@ jobs:
     - name: Download DL Package(下载DL软件包)
       run: |
         cd $OPENWRT_PATH
-        make defconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
@@ -132,7 +133,7 @@ jobs:
 
     - name: Upload Bin Directory(上传bin目录)
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-bin-${{ env.FIRMWARE_TAG }}-${{ env.FILE_DATE }}
         path: ${{ env.OPENWRT_PATH }}/bin
@@ -144,6 +145,7 @@ jobs:
         cat sha256sums
         echo "VERSION_KERNEL=$(find -type f -name "*.manifest" -exec grep -oP '^kernel - \K.*?(?=~|-\d+-)' {} \;)" >> $GITHUB_ENV
         cp $OPENWRT_PATH/.config build.config
+        mkdir -p packages
         [ -d $OPENWRT_PATH/bin/packages ] && find $OPENWRT_PATH/bin/packages -type f -name "*.ipk" -exec cp -f {} packages \;
         [ -d packages ] && tar -zcf Packages.tar.gz packages || true
         rm -rf feeds.buildinfo version.buildinfo
@@ -151,7 +153,7 @@ jobs:
 
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.FIRMWARE_TAG }}-${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
@@ -172,7 +174,7 @@ jobs:
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}
           - 🧩 目标机型: ${{ env.DEVICE_PROFILE }}
-          - 🌐 默认地址: 192.168.1.1
+          - 🌐 默认地址: 192.168.123.1
           - 🔑 默认密码: password
           ### 🧊 固件版本
           - 固件内核版本：${{ env.VERSION_KERNEL }}
