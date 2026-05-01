@@ -112,6 +112,7 @@ jobs:
       run: |
         cd $OPENWRT_PATH
         make defconfig
+        make kernel_olddefconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
