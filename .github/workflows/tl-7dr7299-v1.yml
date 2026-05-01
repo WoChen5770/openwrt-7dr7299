@@ -88,6 +88,10 @@ jobs:
         [ -e $DIY_SCRIPT ] && chmod +x $DIY_SCRIPT && cd $OPENWRT_PATH && $GITHUB_WORKSPACE/$DIY_SCRIPT
         cd $OPENWRT_PATH
         make defconfig
+        echo "===== check BPF config ====="
+        grep -E 'CONFIG_KERNEL_(BPF_SYSCALL|BPF_JIT|NET_SCH_BPF)' .config || true
+        echo "===== clean kernel build dir ====="
+        make target/linux/clean
 
     - name: Generate Variables(生成变量)
       run: |
