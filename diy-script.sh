@@ -107,10 +107,11 @@ RTL8261D_PKG_DIR="$(find package feeds -maxdepth 4 -type d -path '*/rtl8261d' 2>
 if [ -n "$RTL8261D_PKG_DIR" ] && [ -d "$RTL8261D_PKG_DIR" ]; then
   echo "Found rtl8261d package dir: $RTL8261D_PKG_DIR"
   mkdir -p "$RTL8261D_PKG_DIR/patches"
+
   cat > "$RTL8261D_PKG_DIR/patches/100-kernel-6.18-set-loopback-signature.patch" <<'EOF'
 --- a/src/rtl8261d_main.c
 +++ b/src/rtl8261d_main.c
-@@
+@@ -660,7 +660,8 @@
 -int rtl8261x_set_loopback(struct phy_device *phydev, bool enable)
 +int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)
  {
@@ -118,9 +119,10 @@ if [ -n "$RTL8261D_PKG_DIR" ] && [ -d "$RTL8261D_PKG_DIR" ]; then
      return Nic_Rtl8261X_loopback_set(phydev, enable);
  }
 EOF
+
   echo "===== rtl8261d patch check ====="
   ls -l "$RTL8261D_PKG_DIR/patches" || true
-  sed -n '1,120p' "$RTL8261D_PKG_DIR/patches/100-kernel-6.18-set-loopback-signature.patch" || true
+  sed -n '1,80p' "$RTL8261D_PKG_DIR/patches/100-kernel-6.18-set-loopback-signature.patch" || true
 else
   echo "rtl8261d package dir not found, skip patch"
 fi
