@@ -80,20 +80,7 @@ jobs:
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-    - name: Patch kernel config
-      run: |
-        cd $OPENWRT_PATH
-        for opt in CONFIG_BPF_SYSCALL CONFIG_BPF_JIT CONFIG_NET_SCH_BPF; do
-          sed -i "/^${opt}=.*/d" target/linux/mediatek/filogic/config-6.18
-          sed -i "/^# ${opt} is not set/d" target/linux/mediatek/filogic/config-6.18
-        done
-        cat >> target/linux/mediatek/filogic/config-6.18 <<'EOF'
-        CONFIG_BPF_SYSCALL=y
-        CONFIG_BPF_JIT=y
-        CONFIG_NET_SCH_BPF=y
-        EOF
-        echo "===== kernel fragment check ====="
-        grep -nE 'CONFIG_(BPF_SYSCALL|BPF_JIT|NET_SCH_BPF)' target/linux/mediatek/filogic/config-6.18
+
     - name: Load Custom Configuration(加载自定义配置)
       run: |
         [ -e files ] && mv files $OPENWRT_PATH/files
