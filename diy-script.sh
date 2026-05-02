@@ -115,29 +115,24 @@ else
 fi
 
 # 修复 rtl8261d 驱动在 Linux 6.18 下 set_loopback 接口签名不兼容
-RTL8261D_FILE="$(find package feeds -type f -name 'rtl8261d_main.c' 2>/dev/null | head -n 1)"
-if [ -n "$RTL8261D_FILE" ] && [ -f "$RTL8261D_FILE" ]; then
-  echo "Fix rtl8261d kernel 6.18 compatibility: $RTL8261D_FILE"
-
-  sed -i \
-    's/int[[:space:]]\+rtl8261x_set_loopback(struct phy_device \*phydev, bool enable);/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode);/g' \
-    "$RTL8261D_FILE"
-
-  sed -i \
-    's/int[[:space:]]\+rtl8261x_set_loopback(struct phy_device \*phydev, bool enable)/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)/g' \
-    "$RTL8261D_FILE"
-
-  perl -0pi -e '
-    s#(int rtl8261x_set_loopback\(struct phy_device \*phydev, bool enable, int loopback_mode\)\s*\{)(?![^}]*loopback_mode)#$1\n    (void)loopback_mode;#s
-  ' "$RTL8261D_FILE"
-
-  echo "===== rtl8261d function check ====="
-  sed -n "/rtl8261x_set_loopback/,/}/p" "$RTL8261D_FILE" || true
-
-  if ! grep -q 'int rtl8261x_set_loopback(struct phy_device \*phydev, bool enable, int loopback_mode)' "$RTL8261D_FILE"; then
-    echo "ERROR: rtl8261x_set_loopback signature patch failed" >&2
-    exit 1
-  fi
+RTL8261D_PKG_DIR="$(find package feeds -maxdepth 4 -type d -path '*/rtl8261d' 2>/dev/null | head -n 1)"
+if [ -n "$RTL8261D_PKG_DIR" ] && [ -d "$RTL8261D_PKG_DIR" ]; then
+  echo "Found rtl8261d package dir: $RTL8261D_PKG_DIR"
+  mkdir -p "$RTL8261D_PKG_DIR/patches"
+  cat > "$RTL8261D_PKG_DIR/patches/100-kernel-6.18-set-loopback-signature.patch" <<'EOF'
+--- a/src/rtl8261d_main.c
++++ b/src/rtl8261d_main.c
+@@
+-int rtl8261x_set_loopback(struct phy_device *phydev, bool enable)
++int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)
+ {
++    (void)loopback_mode;
+     return Nic_Rtl8261X_loopback_set(phydev, enable);
+ }
+EOF
+  echo "===== rtl8261d patch check ====="
+  ls -l "$RTL8261D_PKG_DIR/patches" || true
+  sed -n '1,120p' "$RTL8261D_PKG_DIR/patches/100-kernel-6.18-set-loopback-signature.patch" || true
 else
-  echo "rtl8261d_main.c not found, skip fix"
+  echo "rtl8261d package dir not found, skip patch"
 fi
