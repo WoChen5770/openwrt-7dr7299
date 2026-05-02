@@ -119,14 +119,25 @@ RTL8261D_FILE="$(find package feeds -type f -name 'rtl8261d_main.c' 2>/dev/null 
 if [ -n "$RTL8261D_FILE" ] && [ -f "$RTL8261D_FILE" ]; then
   echo "Fix rtl8261d kernel 6.18 compatibility: $RTL8261D_FILE"
 
-  # 1) 先修正函数声明（如果存在）
-  sed -i 's/int rtl8261x_set_loopback(struct phy_device \*phydev, bool enable);/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode);/' "$RTL8261D_FILE"
+  sed -i \
+    's/int[[:space:]]\+rtl8261x_set_loopback(struct phy_device \*phydev, bool enable);/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode);/g' \
+    "$RTL8261D_FILE"
 
-  # 2) 再修正函数定义
-  perl -0pi -e 's/int rtl8261x_set_loopback\(struct phy_device \*phydev, bool enable\)\s*\{\s*return Nic_Rtl8261X_loopback_set\(phydev, enable\);\s*\}/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)\n{\n    (void)loopback_mode;\n    return Nic_Rtl8261X_loopback_set(phydev, enable);\n}/s' "$RTL8261D_FILE"
+  sed -i \
+    's/int[[:space:]]\+rtl8261x_set_loopback(struct phy_device \*phydev, bool enable)/int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)/g' \
+    "$RTL8261D_FILE"
+
+  perl -0pi -e '
+    s#(int rtl8261x_set_loopback\(struct phy_device \*phydev, bool enable, int loopback_mode\)\s*\{)(?![^}]*loopback_mode)#$1\n    (void)loopback_mode;#s
+  ' "$RTL8261D_FILE"
 
   echo "===== rtl8261d function check ====="
-  grep -n "rtl8261x_set_loopback" "$RTL8261D_FILE" || true
+  sed -n "/rtl8261x_set_loopback/,/}/p" "$RTL8261D_FILE" || true
+
+  if ! grep -q 'int rtl8261x_set_loopback(struct phy_device \*phydev, bool enable, int loopback_mode)' "$RTL8261D_FILE"; then
+    echo "ERROR: rtl8261x_set_loopback signature patch failed" >&2
+    exit 1
+  fi
 else
   echo "rtl8261d_main.c not found, skip fix"
 fi
