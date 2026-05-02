@@ -53,17 +53,34 @@ git_sparse_clone main https://github.com/linkease/istore luci
 
 # 在线用户
 git_sparse_clone main https://github.com/haiibo/packages luci-app-onliner
-sed -i '$i uci set nlbwmon.@nlbwmon[0].refresh_interval=2s' package/lean/default-settings/files/zzz-default-settings
-sed -i '$i uci commit nlbwmon' package/lean/default-settings/files/zzz-default-settings
-chmod 755 package/luci-app-onliner/root/usr/share/onliner/setnlbw.sh
+
+DEFAULT_SETTINGS_FILE="$(find package feeds -type f -path '*/default-settings/files/zzz-default-settings' 2>/dev/null | head -n 1)"
+if [ -n "$DEFAULT_SETTINGS_FILE" ] && [ -f "$DEFAULT_SETTINGS_FILE" ]; then
+  echo "Found default settings: $DEFAULT_SETTINGS_FILE"
+  sed -i '$i uci set nlbwmon.@nlbwmon[0].refresh_interval=2s' "$DEFAULT_SETTINGS_FILE"
+  sed -i '$i uci commit nlbwmon' "$DEFAULT_SETTINGS_FILE"
+else
+  echo "zzz-default-settings not found, skip nlbwmon patch"
+fi
+
+if [ -f package/luci-app-onliner/root/usr/share/onliner/setnlbw.sh ]; then
+  chmod 755 package/luci-app-onliner/root/usr/share/onliner/setnlbw.sh
+fi
 
 # 修改本地时间格式
-sed -i 's/os.date()/os.date("%a %Y-%m-%d %H:%M:%S")/g' package/lean/autocore/files/*/index.htm
+find package feeds -type f -path '*/autocore/files/*/index.htm' 2>/dev/null \
+  | xargs -r sed -i 's/os.date()/os.date("%a %Y-%m-%d %H:%M:%S")/g'
 
 # 修改版本为编译日期
 date_version=$(date +"%y.%m.%d")
-orig_version=$(grep DISTRIB_REVISION= package/lean/default-settings/files/zzz-default-settings | awk -F "'" '{print $2}')
-sed -i "s/${orig_version}/R${date_version} by Haiibo/g" package/lean/default-settings/files/zzz-default-settings
+if [ -n "$DEFAULT_SETTINGS_FILE" ] && [ -f "$DEFAULT_SETTINGS_FILE" ]; then
+  orig_version=$(grep 'DISTRIB_REVISION=' "$DEFAULT_SETTINGS_FILE" | awk -F "'" '{print $2}' || true)
+  if [ -n "$orig_version" ]; then
+    sed -i "s/${orig_version}/R${date_version} by Haiibo/g" "$DEFAULT_SETTINGS_FILE"
+  else
+    echo "DISTRIB_REVISION not found, skip version patch"
+  fi
+fi
 
 # 修复 hostapd 报错
 cp -f "$GITHUB_WORKSPACE/scripts/011-fix-mbo-modules-build.patch" package/network/services/hostapd/patches/011-fix-mbo-modules-build.patch
