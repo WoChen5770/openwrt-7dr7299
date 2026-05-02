@@ -20,6 +20,10 @@ rm -rf feeds/luci/applications/luci-app-mosdns
 rm -rf feeds/luci/applications/luci-app-netdata
 rm -rf feeds/luci/applications/luci-app-serverchan
 
+rm -rf feeds/luci/applications/luci-app-argon-config
+rm -rf package/feeds/luci/luci-app-argon-config
+rm -rf feeds/packages/net/onionshare-cli
+rm -rf package/feeds/packages/onionshare-cli
 # Git稀疏克隆，只克隆指定目录到本地
 function git_sparse_clone() {
   branch="$1" repourl="$2" && shift 2
