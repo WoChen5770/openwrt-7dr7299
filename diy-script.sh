@@ -55,22 +55,6 @@ git_sparse_clone master https://github.com/linkease/nas-packages network/service
 git_sparse_clone main https://github.com/linkease/istore-ui app-store-ui
 git_sparse_clone main https://github.com/linkease/istore luci
 
-# 在线用户
-git_sparse_clone main https://github.com/haiibo/packages luci-app-onliner
-
-DEFAULT_SETTINGS_FILE="$(find package feeds -type f -path '*/default-settings/files/zzz-default-settings' 2>/dev/null | head -n 1)"
-if [ -n "$DEFAULT_SETTINGS_FILE" ] && [ -f "$DEFAULT_SETTINGS_FILE" ]; then
-  echo "Found default settings: $DEFAULT_SETTINGS_FILE"
-  sed -i '$i uci set nlbwmon.@nlbwmon[0].refresh_interval=2s' "$DEFAULT_SETTINGS_FILE"
-  sed -i '$i uci commit nlbwmon' "$DEFAULT_SETTINGS_FILE"
-else
-  echo "zzz-default-settings not found, skip nlbwmon patch"
-fi
-
-if [ -f package/luci-app-onliner/root/usr/share/onliner/setnlbw.sh ]; then
-  chmod 755 package/luci-app-onliner/root/usr/share/onliner/setnlbw.sh
-fi
-
 # 修改本地时间格式
 find package feeds -type f -path '*/autocore/files/*/index.htm' 2>/dev/null \
   | xargs -r sed -i 's/os.date()/os.date("%a %Y-%m-%d %H:%M:%S")/g'
