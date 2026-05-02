@@ -85,7 +85,7 @@ jobs:
       run: |
         [ -e files ] && mv files $OPENWRT_PATH/files
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE $OPENWRT_PATH/.config
-        [ -e $DIY_SCRIPT ] && chmod +x $DIY_SCRIPT && cd $OPENWRT_PATH && $GITHUB_WORKSPACE/$DIY_SCRIPT
+        [ -e "$GITHUB_WORKSPACE/$DIY_SCRIPT" ] && chmod +x "$GITHUB_WORKSPACE/$DIY_SCRIPT" && cd "$OPENWRT_PATH" && "$GITHUB_WORKSPACE/$DIY_SCRIPT"
         cd $OPENWRT_PATH
         make defconfig
         make target/linux/clean
