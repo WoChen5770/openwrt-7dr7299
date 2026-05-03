@@ -182,30 +182,35 @@ else
 fi
 
 # 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
+echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
 
 echo "===== debug search rtl837x ====="
-find package feeds target -type f 2>/dev/null | grep -i 'rtl837\|rtl8261\|sfp\|mdio' || true
-echo "===== debug search rtl837x_sfp_module_insert ====="
-grep -Rns "rtl837x_sfp_module_insert" package feeds target 2>/dev/null || true
-echo "===== debug search rtl837x_mdio.c ====="
-find package feeds target -type f -name 'rtl837x_mdio.c' 2>/dev/null || true
+find package feeds target -type f 2>/dev/null | grep -i 'rtl837x\|sfp\|mdio' || true
 
+RTL837X_MDIO_C="$(find package feeds target -type f -name 'rtl837x_mdio.c' 2>/dev/null | head -n 1 || true)"
 
+if [ -z "${RTL837X_MDIO_C:-}" ]; then
+  RTL837X_MDIO_C="$(grep -Rsl 'rtl837x_sfp_module_insert' package feeds target 2>/dev/null | head -n 1 || true)"
+fi
 
-echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
-RTL837X_MDIO_C="$(find package feeds -type f -path '*/rtl837x-gsw*/src/rtl837x_mdio.c' | head -n 1 || true)"
 if [ -n "${RTL837X_MDIO_C:-}" ] && [ -f "$RTL837X_MDIO_C" ]; then
-  echo "Found rtl837x_mdio.c: $RTL837X_MDIO_C"
+  echo "Found rtl837x source: $RTL837X_MDIO_C"
+
   python3 - "$RTL837X_MDIO_C" <<'PY'
 from pathlib import Path
-import re, sys
+import re
+import sys
+
 p = Path(sys.argv[1])
 s = p.read_text()
+
 new_block = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
 {
 	struct rtk_gsw *gsw = upstream;
+
 	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\n",
 		 gsw->sds1mode);
+
 	switch (gsw->sds1mode) {
 	case SERDES_10GR:
 		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\n");
@@ -225,23 +230,50 @@ new_block = r'''static int rtl837x_sfp_module_insert(void *upstream, const struc
 			gsw->sds1mode);
 		return -EINVAL;
 	}
+
 	rtk_sdsMode_set(1, gsw->sds1mode);
 	return 0;
 }
 '''
-pattern = re.compile(r"static\s+int\s+rtl837x_sfp_module_insert\b[^{]*\{.*?\}\s*\n?", re.S)
-if not pattern.search(s):
+
+pattern = re.compile(
+    r'static\s+int\s+rtl837x_sfp_module_insert\s*\([^)]*\)\s*\{.*?\n\}',
+    re.S
+)
+
+m = pattern.search(s)
+if not m:
     print("rtl837x_sfp_module_insert not found", file=sys.stderr)
     sys.exit(1)
-s = pattern.sub(new_block, s)
-p.write_text(s)
-print("rtl837x_sfp_module_insert patched successfully")
+
+old_block = m.group(0)
+
+if old_block.strip() == new_block.strip():
+    print("rtl837x_sfp_module_insert already patched")
+else:
+    s = s[:m.start()] + new_block + s[m.end():]
+    p.write_text(s)
+    print("rtl837x_sfp_module_insert patched successfully")
 PY
-  echo "verify rtl837x_mdio.c:"
-  grep -n "rtl837x_sfp_module_insert\|sfp_parse_support" "$RTL837X_MDIO_C" || true
+
+  echo "===== verify rtl837x patch ====="
+  grep -n "rtl837x_sfp_module_insert" "$RTL837X_MDIO_C" || true
 else
-  echo "rtl837x_mdio.c not found, skip patch"
+  echo "No rtl837x source found in current source tree, skip patch (not an error)"
 fi
+
+python3 - "$RTL837X_MDIO_C" <<'PY'
+from pathlib import Path
+import re
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+m = re.search(r'static\s+int\s+rtl837x_sfp_module_insert\s*\([^)]*\)\s*\{.*?\n\}', s, re.S)
+if m:
+    print(m.group(0))
+else:
+    print("function not found")
+PY
 
 # 刷新配置
 make defconfig
