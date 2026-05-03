@@ -182,106 +182,62 @@ else
 fi
 
 # 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
-echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
+mkdir -p package/kernel/rtl837x-gsw/patches
 
-RTL837X_MAKEFILE="package/kernel/rtl837x-gsw/Makefile"
-
-if [ -f "$RTL837X_MAKEFILE" ]; then
-  echo "Found rtl837x Makefile: $RTL837X_MAKEFILE"
-
-  python3 - "$RTL837X_MAKEFILE" <<'PY'
-from pathlib import Path
-import sys
-
-p = Path(sys.argv[1])
-s = p.read_text()
-
-block = """
-define Build/Prepare
-\t$(call Build/Prepare/Default)
-\tpython3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" <<'EOF'
-from pathlib import Path
-import re
-import sys
-
-p = Path(sys.argv[1])
-s = p.read_text()
-
-new_block = '''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
-{
-\tstruct rtk_gsw *gsw = upstream;
-
-\tdev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\\n",
-\t\t gsw->sds1mode);
-
-\tswitch (gsw->sds1mode) {
-\tcase SERDES_10GR:
-\t\tdev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\\n");
-\t\tbreak;
-\tcase SERDES_2500BASEX:
-\t\tdev_info(gsw->dev, "Using 2500base-x mode for SFP module\\n");
-\t\tbreak;
-\tcase SERDES_1000BASEX:
-\tcase SERDES_SG:
-\t\tdev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\\n");
-\t\tbreak;
-\tcase SERDES_100FX:
-\t\tdev_info(gsw->dev, "Using 100base-fx mode for SFP module\\n");
-\t\tbreak;
-\tdefault:
-\t\tdev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\\n",
-\t\t\tgsw->sds1mode);
-\t\treturn -EINVAL;
-\t}
-
-\trtk_sdsMode_set(1, gsw->sds1mode);
-\treturn 0;
-}
-'''
-
-pattern = re.compile(
-    r'static\\s+int\\s+rtl837x_sfp_module_insert\\s*\\([^)]*\\)\\s*\\{.*?\\n\\}',
-    re.S
-)
-
-m = pattern.search(s)
-if not m:
-    print("rtl837x_sfp_module_insert not found", file=sys.stderr)
-    sys.exit(1)
-
-old_block = m.group(0)
-
-if old_block.strip() == new_block.strip():
-    print("rtl837x_sfp_module_insert already patched")
-else:
-    s = s[:m.start()] + new_block + s[m.end():]
-    p.write_text(s)
-    print("rtl837x_sfp_module_insert patched successfully")
+cat > package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch <<'EOF'
+--- a/src/rtl837x_mdio.c
++++ b/src/rtl837x_mdio.c
+@@ -508,31 +508,28 @@ static void rtl837x_sfp_detach(void *upstream, struct sfp_bus *bus)
+ 
+ static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+ {
+ 	struct rtk_gsw *gsw = upstream;
+-	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
+-	DECLARE_PHY_INTERFACE_MASK(interfaces);
+-	phy_interface_t iface;
+ 
+-	sfp_parse_support(gsw->sfp_bus, id, support, interfaces);
+-	iface = sfp_select_interface(gsw->sfp_bus, support);
+-
+-	dev_info(gsw->dev, "%s SFP module inserted\n", phy_modes(iface));
+-
+-	switch (iface) {
+-	case PHY_INTERFACE_MODE_10GBASER:
+-		USE_SERDESMODE(1, SERDES_10GR);
++	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\n",
++		 gsw->sds1mode);
++
++	switch (gsw->sds1mode) {
++	case SERDES_10GR:
++		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\n");
+ 		break;
+-	case PHY_INTERFACE_MODE_2500BASEX:
+-		USE_SERDESMODE(1, SERDES_2500BASEX);
++	case SERDES_2500BASEX:
++		dev_info(gsw->dev, "Using 2500base-x mode for SFP module\n");
+ 		break;
+-	case PHY_INTERFACE_MODE_1000BASEX:
+-	case PHY_INTERFACE_MODE_SGMII:
+-		USE_SERDESMODE(1, SERDES_1000BASEX);
++	case SERDES_1000BASEX:
++	case SERDES_SG:
++		dev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\n");
+ 		break;
+-	case PHY_INTERFACE_MODE_100BASEX:
+-		USE_SERDESMODE(1, SERDES_100FX);
++	case SERDES_100FX:
++		dev_info(gsw->dev, "Using 100base-fx mode for SFP module\n");
+ 		break;
+ 	default:
+-		dev_err(gsw->dev, "Incompatible SFP module inserted\n");
++		dev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\n",
++			gsw->sds1mode);
+ 		return -EINVAL;
+ 	}
+ 
+ 	rtk_sdsMode_set(1, gsw->sds1mode);
+ 	return 0;
 EOF
-\tgrep -n "rtl837x_sfp_module_insert" "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" || true
-endef
-
-"""
-
-if 'python3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c"' in s:
-    print("rtl837x Build/Prepare already exists")
-    sys.exit(0)
-
-marker = "define Build/Compile\n"
-if marker not in s:
-    print("define Build/Compile marker not found", file=sys.stderr)
-    sys.exit(1)
-
-s = s.replace(marker, block + marker, 1)
-p.write_text(s)
-print("rtl837x Build/Prepare injected successfully")
-PY
-
-  echo "===== rtl837x Makefile preview ====="
-  sed -n '1,120p' "$RTL837X_MAKEFILE"
-else
-  echo "rtl837x Makefile not found, skip patch"
-fi
 
 # 刷新配置
 make defconfig
