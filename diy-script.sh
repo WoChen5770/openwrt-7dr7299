@@ -184,19 +184,22 @@ fi
 # 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
 echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
 
-echo "===== debug search rtl837x ====="
-find package feeds target -type f 2>/dev/null | grep -i 'rtl837x\|sfp\|mdio' || true
+RTL837X_MAKEFILE="package/kernel/rtl837x-gsw/Makefile"
 
-RTL837X_MDIO_C="$(find package feeds target -type f -name 'rtl837x_mdio.c' 2>/dev/null | head -n 1 || true)"
+if [ -f "$RTL837X_MAKEFILE" ]; then
+  echo "Found rtl837x Makefile: $RTL837X_MAKEFILE"
 
-if [ -z "${RTL837X_MDIO_C:-}" ]; then
-  RTL837X_MDIO_C="$(grep -Rsl 'rtl837x_sfp_module_insert' package feeds target 2>/dev/null | head -n 1 || true)"
-fi
+  python3 - "$RTL837X_MAKEFILE" <<'PY'
+from pathlib import Path
+import sys
 
-if [ -n "${RTL837X_MDIO_C:-}" ] && [ -f "$RTL837X_MDIO_C" ]; then
-  echo "Found rtl837x source: $RTL837X_MDIO_C"
+p = Path(sys.argv[1])
+s = p.read_text()
 
-  python3 - "$RTL837X_MDIO_C" <<'PY'
+block = """
+define Build/Prepare
+\t$(call Build/Prepare/Default)
+\tpython3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" <<'EOF'
 from pathlib import Path
 import re
 import sys
@@ -204,40 +207,40 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 
-new_block = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+new_block = '''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
 {
-	struct rtk_gsw *gsw = upstream;
+\tstruct rtk_gsw *gsw = upstream;
 
-	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\n",
-		 gsw->sds1mode);
+\tdev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\\n",
+\t\t gsw->sds1mode);
 
-	switch (gsw->sds1mode) {
-	case SERDES_10GR:
-		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\n");
-		break;
-	case SERDES_2500BASEX:
-		dev_info(gsw->dev, "Using 2500base-x mode for SFP module\n");
-		break;
-	case SERDES_1000BASEX:
-	case SERDES_SG:
-		dev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\n");
-		break;
-	case SERDES_100FX:
-		dev_info(gsw->dev, "Using 100base-fx mode for SFP module\n");
-		break;
-	default:
-		dev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\n",
-			gsw->sds1mode);
-		return -EINVAL;
-	}
+\tswitch (gsw->sds1mode) {
+\tcase SERDES_10GR:
+\t\tdev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\\n");
+\t\tbreak;
+\tcase SERDES_2500BASEX:
+\t\tdev_info(gsw->dev, "Using 2500base-x mode for SFP module\\n");
+\t\tbreak;
+\tcase SERDES_1000BASEX:
+\tcase SERDES_SG:
+\t\tdev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\\n");
+\t\tbreak;
+\tcase SERDES_100FX:
+\t\tdev_info(gsw->dev, "Using 100base-fx mode for SFP module\\n");
+\t\tbreak;
+\tdefault:
+\t\tdev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\\n",
+\t\t\tgsw->sds1mode);
+\t\treturn -EINVAL;
+\t}
 
-	rtk_sdsMode_set(1, gsw->sds1mode);
-	return 0;
+\trtk_sdsMode_set(1, gsw->sds1mode);
+\treturn 0;
 }
 '''
 
 pattern = re.compile(
-    r'static\s+int\s+rtl837x_sfp_module_insert\s*\([^)]*\)\s*\{.*?\n\}',
+    r'static\\s+int\\s+rtl837x_sfp_module_insert\\s*\\([^)]*\\)\\s*\\{.*?\\n\\}',
     re.S
 )
 
@@ -254,26 +257,31 @@ else:
     s = s[:m.start()] + new_block + s[m.end():]
     p.write_text(s)
     print("rtl837x_sfp_module_insert patched successfully")
+EOF
+\tgrep -n "rtl837x_sfp_module_insert" "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" || true
+endef
+
+"""
+
+if 'python3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c"' in s:
+    print("rtl837x Build/Prepare already exists")
+    sys.exit(0)
+
+marker = "define Build/Compile\n"
+if marker not in s:
+    print("define Build/Compile marker not found", file=sys.stderr)
+    sys.exit(1)
+
+s = s.replace(marker, block + marker, 1)
+p.write_text(s)
+print("rtl837x Build/Prepare injected successfully")
 PY
 
-  echo "===== verify rtl837x patch ====="
-  grep -n "rtl837x_sfp_module_insert" "$RTL837X_MDIO_C" || true
+  echo "===== rtl837x Makefile preview ====="
+  sed -n '1,120p' "$RTL837X_MAKEFILE"
 else
-  echo "No rtl837x source found in current source tree, skip patch (not an error)"
+  echo "rtl837x Makefile not found, skip patch"
 fi
-
-python3 - "$RTL837X_MDIO_C" <<'PY'
-from pathlib import Path
-import re
-import sys
-p = Path(sys.argv[1])
-s = p.read_text()
-m = re.search(r'static\s+int\s+rtl837x_sfp_module_insert\s*\([^)]*\)\s*\{.*?\n\}', s, re.S)
-if m:
-    print(m.group(0))
-else:
-    print("function not found")
-PY
 
 # 刷新配置
 make defconfig
