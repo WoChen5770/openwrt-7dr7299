@@ -182,6 +182,16 @@ else
 fi
 
 # 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
+
+echo "===== debug search rtl837x ====="
+find package feeds target -type f 2>/dev/null | grep -i 'rtl837\|rtl8261\|sfp\|mdio' || true
+echo "===== debug search rtl837x_sfp_module_insert ====="
+grep -Rns "rtl837x_sfp_module_insert" package feeds target 2>/dev/null || true
+echo "===== debug search rtl837x_mdio.c ====="
+find package feeds target -type f -name 'rtl837x_mdio.c' 2>/dev/null || true
+
+
+
 echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
 RTL837X_MDIO_C="$(find package feeds -type f -path '*/rtl837x-gsw*/src/rtl837x_mdio.c' | head -n 1 || true)"
 if [ -n "${RTL837X_MDIO_C:-}" ] && [ -f "$RTL837X_MDIO_C" ]; then
