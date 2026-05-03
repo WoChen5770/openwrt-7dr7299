@@ -181,108 +181,100 @@ else
   echo "rtl8261d Makefile not found, skip rtl8261d fix"
 fi
 
-################################
-# 9. 修复 rtl837x-gsw 在 Linux 6.18 下的 sfp_parse_support 声明问题
-################################
 
-echo "===== patch rtl837x-gsw for kernel 6.18 ====="
+# 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
+echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
 
-RTL837X_MAKEFILE="$(find package feeds -maxdepth 6 -type f -path '*/rtl837x-gsw/Makefile' | head -n 1 || true)"
+RTL837X_MDIO_C="$(find package feeds -type f -path '*/rtl837x-gsw*/src/rtl837x_mdio.c' | head -n 1 || true)"
 
-if [ -n "${RTL837X_MAKEFILE:-}" ] && [ -f "$RTL837X_MAKEFILE" ]; then
-  echo "Found rtl837x-gsw Makefile: $RTL837X_MAKEFILE"
+if [ -n "${RTL837X_MDIO_C:-}" ] && [ -f "$RTL837X_MDIO_C" ]; then
+  echo "Found: $RTL837X_MDIO_C"
 
-  python3 - "$RTL837X_MAKEFILE" <<'PY'
-from pathlib import Path
-import sys
-
-mf = Path(sys.argv[1])
-text = mf.read_text()
-
-begin = "define Build/Prepare"
-end = "endef"
-
-# 清理之前已注入过的同类补丁块
-if begin in text:
-    lines = text.splitlines()
-    out = []
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith(begin):
-            block = []
-            j = i
-            while j < len(lines):
-                block.append(lines[j])
-                if lines[j].strip() == end:
-                    break
-                j += 1
-            joined = "\n".join(block)
-            if "rtl837x_mdio.c" in joined and "sfp_parse_support" in joined:
-                i = j + 1
-                continue
-        out.append(lines[i])
-        i += 1
-    text = "\n".join(out) + "\n"
-
-marker = "define Build/Compile"
-block = r'''
-define Build/Prepare
-	$(call Build/Prepare/Default)
-	python3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" <<'EOF'
+  python3 - "$RTL837X_MDIO_C" <<'PY'
 from pathlib import Path
 import sys
 
 p = Path(sys.argv[1])
 s = p.read_text()
 
-inc = "#include <linux/sfp.h>\n"
-decl = """
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,18,0)
-extern void sfp_parse_support(struct sfp_bus *bus,
-			      const struct sfp_eeprom_id *id,
-			      unsigned long *support,
-			      unsigned long *interfaces);
-#endif
+old = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+{
+	struct rtk_gsw *gsw = upstream;
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
+	DECLARE_PHY_INTERFACE_MASK(interfaces);
+	phy_interface_t iface;
 
-"""
+	sfp_parse_support(gsw->sfp_bus, id, support, interfaces);
+	iface = sfp_select_interface(gsw->sfp_bus, support);
 
-# 补头文件
-if "#include <linux/sfp.h>" not in s:
-    anchor = "#include <linux/version.h>\n"
-    if anchor in s:
-        s = s.replace(anchor, anchor + inc, 1)
-    else:
-        s = inc + s
+	dev_info(gsw->dev, "%s SFP module inserted\n", phy_modes(iface));
 
-# 补前向声明
-if "extern void sfp_parse_support(" not in s:
-    anchor2 = "#include <linux/sfp.h>\n"
-    if anchor2 in s:
-        s = s.replace(anchor2, anchor2 + decl, 1)
-    else:
-        s = decl + s
+	switch (iface) {
+	case PHY_INTERFACE_MODE_10GBASER:
+		USE_SERDESMODE(1, SERDES_10GR);
+		break;
+	case PHY_INTERFACE_MODE_2500BASEX:
+		USE_SERDESMODE(1, SERDES_2500BASEX);
+		break;
+	case PHY_INTERFACE_MODE_1000BASEX:
+	case PHY_INTERFACE_MODE_SGMII:
+		USE_SERDESMODE(1, SERDES_1000BASEX);
+		break;
+	case PHY_INTERFACE_MODE_100BASEX:
+		USE_SERDESMODE(1, SERDES_100FX);
+		break;
+	default:
+		dev_err(gsw->dev, "Incompatible SFP module inserted\n");
+		return -EINVAL;
+	}
 
-p.write_text(s)
-print("rtl837x_mdio.c patched")
-EOF
-	grep -n "sfp_parse_support" $(PKG_BUILD_DIR)/src/rtl837x_mdio.c || true
-endef
-'''.lstrip("\n")
+	rtk_sdsMode_set(1, gsw->sds1mode);
+	return 0;
+}'''
 
-if marker not in text:
-    print("Build/Compile marker not found in rtl837x-gsw Makefile", file=sys.stderr)
+new = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+{
+	struct rtk_gsw *gsw = upstream;
+
+	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\n",
+		 gsw->sds1mode);
+
+	switch (gsw->sds1mode) {
+	case SERDES_10GR:
+		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\n");
+		break;
+	case SERDES_2500BASEX:
+		dev_info(gsw->dev, "Using 2500base-x mode for SFP module\n");
+		break;
+	case SERDES_1000BASEX:
+	case SERDES_SG:
+		dev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\n");
+		break;
+	case SERDES_100FX:
+		dev_info(gsw->dev, "Using 100base-fx mode for SFP module\n");
+		break;
+	default:
+		dev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\n",
+			gsw->sds1mode);
+		return -EINVAL;
+	}
+
+	rtk_sdsMode_set(1, gsw->sds1mode);
+	return 0;
+}'''
+
+if old in s:
+    s = s.replace(old, new, 1)
+    p.write_text(s)
+    print("rtl837x_sfp_module_insert patched")
+else:
+    print("target function block not found", file=sys.stderr)
     sys.exit(1)
-
-if block not in text:
-    text = text.replace(marker, block + "\n" + marker, 1)
-
-mf.write_text(text)
 PY
 
-  echo "===== rtl837x-gsw Makefile preview ====="
-  sed -n '1,160p' "$RTL837X_MAKEFILE" || true
+  grep -n "rtl837x_sfp_module_insert" "$RTL837X_MDIO_C" || true
 else
-  echo "rtl837x-gsw Makefile not found, skip rtl837x-gsw fix"
+  echo "rtl837x_mdio.c not found, skip patch"
 fi
 
 # 刷新配置
