@@ -47,7 +47,6 @@ clone_or_update https://github.com/sirpdboy/luci-app-ddns-go.git        package/
 clone_or_update https://github.com/sbwml/luci-app-mosdns.git            package/extra/luci-app-mosdns
 clone_or_update https://github.com/ophub/luci-app-amlogic.git           package/extra/luci-app-amlogic
 clone_or_update https://github.com/xiaorouji/openwrt-passwall.git       package/extra/openwrt-passwall
-clone_or_update https://github.com/xiaorouji/openwrt-passwall2.git      package/extra/openwrt-passwall2
 clone_or_update https://github.com/jerrykuku/luci-app-vssr.git          package/extra/luci-app-vssr
 clone_or_update https://github.com/sbwml/openwrt_helloworld.git         package/extra/helloworld
 
