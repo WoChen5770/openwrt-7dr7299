@@ -102,3 +102,85 @@ else
   echo "Kernel config not found: $KCFG"
 fi
 
+# 修复 rtl8261d 在 Linux 6.18 下 set_loopback 函数签名不匹配问题
+echo "===== patch rtl8261d for kernel 6.18 ====="
+find package feeds -path '*/rtl8261d/patches/100-kernel-6.18-set-loopback-signature.patch' -delete 2>/dev/null || true
+RTL8261D_MAKEFILE="$(find package feeds -maxdepth 5 -type f -path '*/rtl8261d/Makefile' 2>/dev/null | head -n 1 || true)"
+if [ -n "${RTL8261D_MAKEFILE:-}" ] && [ -f "$RTL8261D_MAKEFILE" ]; then
+  echo "Found rtl8261d Makefile: $RTL8261D_MAKEFILE"
+  python3 - "$RTL8261D_MAKEFILE" <<'PY'
+from pathlib import Path
+import sys
+mf = Path(sys.argv[1])
+text = mf.read_text()
+begin = "define Build/Prepare"
+end = "endef"
+if begin in text:
+    lines = text.splitlines()
+    out = []
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith(begin):
+            block = []
+            j = i
+            while j < len(lines):
+                block.append(lines[j])
+                if lines[j].strip() == end:
+                    break
+                j += 1
+            joined = "\n".join(block)
+            if "rtl8261x_set_loopback" in joined and "$(PKG_BUILD_DIR)/src/rtl8261d_main.c" in joined:
+                i = j + 1
+                continue
+        out.append(lines[i])
+        i += 1
+    text = "\n".join(out) + "\n"
+marker = "define Build/Compile"
+block = r'''
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	python3 - "$(PKG_BUILD_DIR)/src/rtl8261d_main.c" <<'EOF'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = """int rtl8261x_set_loopback(struct phy_device *phydev, bool enable)
+{
+\treturn Nic_Rtl8261X_loopback_set(phydev, enable);
+}
+"""
+new = """int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)
+{
+\t(void)loopback_mode;
+\treturn Nic_Rtl8261X_loopback_set(phydev, enable);
+}
+"""
+if new in s:
+    print("rtl8261x_set_loopback already patched")
+elif old in s:
+    s = s.replace(old, new, 1)
+    p.write_text(s)
+    print("rtl8261x_set_loopback patched")
+else:
+    print("rtl8261x_set_loopback source block not found", file=sys.stderr)
+    sys.exit(1)
+EOF
+	grep -n "rtl8261x_set_loopback" $(PKG_BUILD_DIR)/src/rtl8261d_main.c || true
+endef
+'''.lstrip("\n")
+if marker not in text:
+    print("Build/Compile marker not found in rtl8261d Makefile", file=sys.stderr)
+    sys.exit(1)
+if block not in text:
+    text = text.replace(marker, block + "\n" + marker, 1)
+mf.write_text(text)
+PY
+  echo "===== rtl8261d Makefile preview ====="
+  sed -n '1,160p' "$RTL8261D_MAKEFILE" || true
+else
+  echo "rtl8261d Makefile not found, skip rtl8261d fix"
+fi
+
+
+# 刷新配置
+make defconfig
