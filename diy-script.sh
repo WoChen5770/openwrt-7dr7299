@@ -1,238 +1,226 @@
 #!/bin/bash
-set -e
 
-# 修改默认IP
-sed -i 's/192.168.123.1/10.0.0.1/g' package/base-files/files/bin/config_generate
+set -euo pipefail
 
-# 更改默认 Shell 为 zsh
-# sed -i 's/\/bin\/ash/\/usr\/bin\/zsh/g' package/base-files/files/etc/passwd
+#========================================
+# 0. 基本信息
+#========================================
+echo "===== start diy-script.sh ====="
 
-# TTYD 免登录
-# sed -i 's|/bin/login|/bin/login -f root|g' feeds/packages/utils/ttyd/files/ttyd.config
+OPENWRT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
+echo "OPENWRT_DIR: ${OPENWRT_DIR}"
+pwd
+ls
 
-# 移除要替换的包
-rm -rf feeds/packages/net/mosdns
-rm -rf feeds/packages/net/msd_lite
-rm -rf feeds/packages/net/smartdns
-rm -rf feeds/luci/themes/luci-theme-argon
-rm -rf feeds/luci/themes/luci-theme-netgear
-rm -rf feeds/luci/applications/luci-app-mosdns
-rm -rf feeds/luci/applications/luci-app-netdata
-rm -rf feeds/luci/applications/luci-app-serverchan
+#========================================
+# 1. 默认 LAN IP
+#========================================
+DEFAULT_LAN_IP="192.168.123.1"
 
-rm -rf feeds/luci/applications/luci-app-argon-config
-rm -rf package/feeds/luci/luci-app-argon-config
-rm -rf feeds/packages/net/onionshare-cli
-rm -rf package/feeds/packages/onionshare-cli
-# Git稀疏克隆，只克隆指定目录到本地
-function git_sparse_clone() {
-  branch="$1" repourl="$2" && shift 2
-  git clone --depth=1 -b "$branch" --single-branch --filter=blob:none --sparse "$repourl"
-  repodir=$(echo "$repourl" | awk -F '/' '{print $(NF)}')
-  cd "$repodir"
-  git sparse-checkout set "$@"
-  mv -f "$@" ../package
-  cd ..
-  rm -rf "$repodir"
+if [ -f "package/base-files/files/bin/config_generate" ]; then
+  echo "===== set default LAN IP to ${DEFAULT_LAN_IP} ====="
+  sed -i "s/192\.168\.[0-9]*\.[0-9]*/${DEFAULT_LAN_IP}/g" package/base-files/files/bin/config_generate
+else
+  echo "WARNING: package/base-files/files/bin/config_generate not found"
+fi
+
+#========================================
+# 2. 拉取额外插件源码
+#========================================
+echo "===== clone extra packages ====="
+
+mkdir -p package/extra
+
+clone_or_update() {
+  local url="$1"
+  local dest="$2"
+  if [ -d "$dest/.git" ]; then
+    echo "update $dest"
+    git -C "$dest" pull --rebase || true
+  else
+    rm -rf "$dest"
+    git clone --depth=1 "$url" "$dest"
+  fi
 }
 
-# MosDNS
-git clone --depth=1 https://github.com/sbwml/luci-app-mosdns package/luci-app-mosdns
+clone_or_update https://github.com/sirpdboy/luci-app-ddns-go.git        package/extra/luci-app-ddns-go
+clone_or_update https://github.com/sbwml/luci-app-mosdns.git            package/extra/luci-app-mosdns
+clone_or_update https://github.com/ophub/luci-app-amlogic.git           package/extra/luci-app-amlogic
+clone_or_update https://github.com/xiaorouji/openwrt-passwall.git       package/extra/openwrt-passwall
+clone_or_update https://github.com/xiaorouji/openwrt-passwall2.git      package/extra/openwrt-passwall2
+clone_or_update https://github.com/jerrykuku/luci-app-vssr.git          package/extra/luci-app-vssr
+clone_or_update https://github.com/sbwml/openwrt_helloworld.git         package/extra/helloworld
 
-# msd_lite
-git clone --depth=1 https://github.com/ximiTech/luci-app-msd_lite package/luci-app-msd_lite
-git clone --depth=1 https://github.com/ximiTech/msd_lite package/msd_lite
+#========================================
+# 3. 生成 .config 并拉取依赖源码
+#========================================
+echo "===== make defconfig ====="
+make defconfig
 
-# SmartDNS
-git clone --depth=1 -b lede https://github.com/pymumu/luci-app-smartdns package/luci-app-smartdns
-git clone --depth=1 https://github.com/pymumu/openwrt-smartdns package/smartdns
+#========================================
+# 4. 修复 linux-6.18 filogic 设备名兼容
+#========================================
+echo "===== patch filogic device name for kernel 6.18 ====="
 
-# DDNS.to
-git_sparse_clone main https://github.com/linkease/nas-packages-luci luci/luci-app-ddnsto
-git_sparse_clone master https://github.com/linkease/nas-packages network/services/ddnsto
+IMAGE_MT798X="$(find target/linux/mediatek/image -name 'mt798x.mk' | head -n 1 || true)"
+if [ -n "${IMAGE_MT798X:-}" ] && [ -f "$IMAGE_MT798X" ]; then
+  if grep -qE 'append-kernel.*ubi_kernel|ubinize-kernel|has-tag-kernel' "$IMAGE_MT798X"; then
+    echo "patch $IMAGE_MT798X"
 
-# iStore
-git_sparse_clone main https://github.com/linkease/istore-ui app-store-ui
-git_sparse_clone main https://github.com/linkease/istore luci
+    sed -i 's/append-kernel.*ubi_kernel/append-kernel | attach-kernel/g' "$IMAGE_MT798X"
+    sed -i 's/ubinize-kernel/attach-kernel/g' "$IMAGE_MT798X"
+    sed -i 's/has-tag-kernel/attach-kernel/g' "$IMAGE_MT798X"
+    sed -i 's/has-tag-rootfs/attach-rootfs/g' "$IMAGE_MT798X"
 
-# 修改本地时间格式
-find package feeds -type f -path '*/autocore/files/*/index.htm' 2>/dev/null \
-  | xargs -r sed -i 's/os.date()/os.date("%a %Y-%m-%d %H:%M:%S")/g'
-
-# 修改版本为编译日期
-date_version=$(date +"%y.%m.%d")
-if [ -n "$DEFAULT_SETTINGS_FILE" ] && [ -f "$DEFAULT_SETTINGS_FILE" ]; then
-  orig_version=$(grep 'DISTRIB_REVISION=' "$DEFAULT_SETTINGS_FILE" | awk -F "'" '{print $2}' || true)
-  if [ -n "$orig_version" ]; then
-    sed -i "s/${orig_version}/R${date_version} by Haiibo/g" "$DEFAULT_SETTINGS_FILE"
+    echo "filogic device-name patch applied"
   else
-    echo "DISTRIB_REVISION not found, skip version patch"
+    echo "mt798x.mk looks already compatible, skip"
   fi
-fi
-
-# 修复 armv8 设备 xfsprogs 报错
-sed -i 's/TARGET_CFLAGS.*/TARGET_CFLAGS += -DHAVE_MAP_SYNC -D_LARGEFILE64_SOURCE/g' feeds/packages/utils/xfsprogs/Makefile
-
-# 修改 Makefile
-find package/*/ -maxdepth 2 -path "*/Makefile" | xargs -i sed -i 's#\.\./\.\./luci.mk#$(TOPDIR)/feeds/luci/luci.mk#g' {}
-find package/*/ -maxdepth 2 -path "*/Makefile" | xargs -i sed -i 's#\.\./\.\./lang/golang/golang-package.mk#$(TOPDIR)/feeds/packages/lang/golang/golang-package.mk#g' {}
-find package/*/ -maxdepth 2 -path "*/Makefile" | xargs -i sed -i 's#PKG_SOURCE_URL:=@GHREPO#PKG_SOURCE_URL:=https://github.com#g' {}
-find package/*/ -maxdepth 2 -path "*/Makefile" | xargs -i sed -i 's#PKG_SOURCE_URL:=@GHCODELOAD#PKG_SOURCE_URL:=https://codeload.github.com#g' {}
-
-# 更新并安装 feeds
-./scripts/feeds update -a
-./scripts/feeds install -a
-
-# 修补 filogic 6.18.21 内核配置，启用 BPF 相关选项
-KCFG="target/linux/mediatek/filogic/config-6.18"
-if [ -f "$KCFG" ]; then
-  echo "Patching kernel config: $KCFG"
-  for opt in CONFIG_BPF_SYSCALL CONFIG_BPF_JIT CONFIG_NET_SCH_BPF; do
-    sed -i "/^${opt}=.*/d" "$KCFG"
-    sed -i "/^# ${opt} is not set/d" "$KCFG"
-  done
-  cat >> "$KCFG" <<'EOF'
-CONFIG_BPF_SYSCALL=y
-CONFIG_BPF_JIT=y
-CONFIG_NET_SCH_BPF=y
-EOF
-  echo "===== kernel fragment check ====="
-  grep -nE 'CONFIG_(BPF_SYSCALL|BPF_JIT|NET_SCH_BPF)' "$KCFG" || true
 else
-  echo "Kernel config not found: $KCFG"
+  echo "target/linux/mediatek/image/mt798x.mk not found, skip"
 fi
 
-# 修复 rtl8261d 在 Linux 6.18 下 set_loopback 函数签名不匹配问题
-echo "===== patch rtl8261d for kernel 6.18 ====="
-find package feeds -path '*/rtl8261d/patches/100-kernel-6.18-set-loopback-signature.patch' -delete 2>/dev/null || true
-RTL8261D_MAKEFILE="$(find package feeds -maxdepth 5 -type f -path '*/rtl8261d/Makefile' 2>/dev/null | head -n 1 || true)"
-if [ -n "${RTL8261D_MAKEFILE:-}" ] && [ -f "$RTL8261D_MAKEFILE" ]; then
-  echo "Found rtl8261d Makefile: $RTL8261D_MAKEFILE"
-  python3 - "$RTL8261D_MAKEFILE" <<'PY'
+#========================================
+# 5. 修复 linux-6.18 eBPF / xdp-tools 兼容
+#========================================
+echo "===== patch xdp-tools / bpftool for kernel 6.18 ====="
+
+XDP_TOOLS_H="$(find package -type f -path '*/xdp-tools/headers-src/xdp/xdp_helpers.h' | head -n 1 || true)"
+BPFTOOL_H="$(find package -type f -path '*/bpftool/src/libbpf/include/uapi/linux/bpf.h' | head -n 1 || true)"
+
+XDP_PATCHED="no"
+
+if [ -n "${XDP_TOOLS_H:-}" ] && [ -f "$XDP_TOOLS_H" ]; then
+  if grep -q 'bpf_redirect neigh' "$XDP_TOOLS_H"; then
+    echo "patch $XDP_TOOLS_H"
+
+    python3 - "$XDP_TOOLS_H" <<'PY'
 from pathlib import Path
-import sys
-mf = Path(sys.argv[1])
-text = mf.read_text()
-begin = "define Build/Prepare"
-end = "endef"
-if begin in text:
-    lines = text.splitlines()
-    out = []
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith(begin):
-            block = []
-            j = i
-            while j < len(lines):
-                block.append(lines[j])
-                if lines[j].strip() == end:
-                    break
-                j += 1
-            joined = "\n".join(block)
-            if "rtl8261x_set_loopback" in joined and "$(PKG_BUILD_DIR)/src/rtl8261d_main.c" in joined:
-                i = j + 1
-                continue
-        out.append(lines[i])
-        i += 1
-    text = "\n".join(out) + "\n"
-marker = "define Build/Compile"
-block = r'''
-define Build/Prepare
-	$(call Build/Prepare/Default)
-	python3 - "$(PKG_BUILD_DIR)/src/rtl8261d_main.c" <<'EOF'
-from pathlib import Path
-import sys
+import re, sys
+
 p = Path(sys.argv[1])
 s = p.read_text()
-old = """int rtl8261x_set_loopback(struct phy_device *phydev, bool enable)
-{
-\treturn Nic_Rtl8261X_loopback_set(phydev, enable);
-}
-"""
-new = """int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)
-{
-\t(void)loopback_mode;
-\treturn Nic_Rtl8261X_loopback_set(phydev, enable);
-}
-"""
-if new in s:
-    print("rtl8261x_set_loopback already patched")
-elif old in s:
-    s = s.replace(old, new, 1)
-    p.write_text(s)
-    print("rtl8261x_set_loopback patched")
-else:
-    print("rtl8261x_set_loopback source block not found", file=sys.stderr)
+
+old_pattern = r"dst_neigh\s*=\s*bpf_redirect_neigh\([^)]*\)\s*;\s*\n\s*if\s*\(\s*dst_neigh\s*\)\s*\{[^}]*\}"
+new_block = "dst_neigh = bpf_redirect_map(&xdp_redirect_map, ctx->rx_queue_index, 0);\nif (dst_neigh) {\n    bpf_printk(\"xdp_redirect: error redirecting to ifindex %d\", ctx->rx_queue_index);\n}"
+
+s, n = re.subn(old_pattern, new_block, s, count=1, flags=re.S)
+if n == 0:
+    print("target xdp_helpers.h block not found", file=sys.stderr)
     sys.exit(1)
-EOF
-	grep -n "rtl8261x_set_loopback" $(PKG_BUILD_DIR)/src/rtl8261d_main.c || true
-endef
-'''.lstrip("\n")
-if marker not in text:
-    print("Build/Compile marker not found in rtl8261d Makefile", file=sys.stderr)
-    sys.exit(1)
-if block not in text:
-    text = text.replace(marker, block + "\n" + marker, 1)
-mf.write_text(text)
+
+p.write_text(s)
+print("xdp_helpers.h patched successfully")
 PY
-  echo "===== rtl8261d Makefile preview ====="
-  sed -n '1,160p' "$RTL8261D_MAKEFILE" || true
+
+    XDP_PATCHED="yes"
+    echo "verify xdp_helpers.h:"
+    grep -n "bpf_redirect_map\|bpf_redirect neigh" "$XDP_TOOLS_H" || true
+  else
+    echo "xdp_helpers.h already looks compatible, skip"
+  fi
 else
-  echo "rtl8261d Makefile not found, skip rtl8261d fix"
+  echo "xdp_helpers.h not found, skip"
 fi
 
+if [ -n "${BPFTOOL_H:-}" ] && [ -f "$BPFTOOL_H" ]; then
+  if grep -q 'BPF_F_NEIGH' "$BPFTOOL_H"; then
+    echo "patch $BPFTOOL_H"
 
-# 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
+    python3 - "$BPFTOOL_H" <<'PY'
+from pathlib import Path
+import re, sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old_pattern = r"#\s*define\s+BPF_F_NEIGH\s+[\s\S]*?#endif"
+new_block = """#define BPF_F_NEIGH 0x10
+#define BPF_F_REDIRECT 0x20
+#define BPF_F_BROADCAST 0x40
+#define BPF_F_EXCLUDE_INGRESS 0x80
+#endif"""
+
+s, n = re.subn(old_pattern, new_block, s, count=1, flags=re.S)
+if n == 0:
+    print("target bpftool bpf.h block not found", file=sys.stderr)
+    sys.exit(1)
+
+p.write_text(s)
+print("bpftool bpf.h patched successfully")
+PY
+
+    XDP_PATCHED="yes"
+    echo "verify bpftool bpf.h:"
+    grep -n "BPF_F_NEIGH\|BPF_F_REDIRECT" "$BPFTOOL_H" || true
+  else
+    echo "bpftool bpf.h already looks compatible, skip"
+  fi
+else
+  echo "bpftool bpf.h not found, skip"
+fi
+
+if [ "$XDP_PATCHED" = "no" ]; then
+  echo "WARNING: xdp-tools / bpftool sources were not found or not patched"
+fi
+
+#========================================
+# 6. 修复 rtl8261d 在 linux-6.18 下兼容
+#========================================
+echo "===== patch rtl8261d for kernel 6.18 ====="
+
+RTL8261D_C="$(find package feeds -type f -path '*/rtl8261d/src/phy_rtl8261d.c' | head -n 1 || true)"
+
+if [ -n "${RTL8261D_C:-}" ] && [ -f "$RTL8261D_C" ]; then
+  if grep -q "struct mdio_device \*mdiodev = to_mdio_device" "$RTL8261D_C"; then
+    echo "patch $RTL8261D_C"
+
+    python3 - "$RTL8261D_C" <<'PY'
+from pathlib import Path
+import re, sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+old = "struct mdio_device *mdiodev = to_mdio_device(dev);\n\tphydev->mdio.dev = mdiodev->dev;"
+new = "phydev->mdio.dev = dev;"
+
+if old not in s:
+    print("target block not found", file=sys.stderr)
+    sys.exit(1)
+
+s = s.replace(old, new, 1)
+p.write_text(s)
+print("rtl8261d patched successfully")
+PY
+
+    echo "verify rtl8261d:"
+    grep -n "to_mdio_device\|phydev->mdio.dev = dev;" "$RTL8261D_C" || true
+  else
+    echo "rtl8261d already looks compatible, skip"
+  fi
+else
+  echo "rtl8261d source not found, skip"
+fi
+
+#========================================
+# 7. 修复 rtl837x-gsw 在 linux-6.18 下 SFP 兼容
+#========================================
 echo "===== patch rtl837x-gsw sfp for kernel 6.18 ====="
 
 RTL837X_MDIO_C="$(find package feeds -type f -path '*/rtl837x-gsw*/src/rtl837x_mdio.c' | head -n 1 || true)"
 
 if [ -n "${RTL837X_MDIO_C:-}" ] && [ -f "$RTL837X_MDIO_C" ]; then
-  echo "Found: $RTL837X_MDIO_C"
+  echo "Found rtl837x_mdio.c: $RTL837X_MDIO_C"
 
   python3 - "$RTL837X_MDIO_C" <<'PY'
 from pathlib import Path
-import sys
+import re, sys
 
 p = Path(sys.argv[1])
 s = p.read_text()
 
-old = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
-{
-	struct rtk_gsw *gsw = upstream;
-	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
-	DECLARE_PHY_INTERFACE_MASK(interfaces);
-	phy_interface_t iface;
-
-	sfp_parse_support(gsw->sfp_bus, id, support, interfaces);
-	iface = sfp_select_interface(gsw->sfp_bus, support);
-
-	dev_info(gsw->dev, "%s SFP module inserted\n", phy_modes(iface));
-
-	switch (iface) {
-	case PHY_INTERFACE_MODE_10GBASER:
-		USE_SERDESMODE(1, SERDES_10GR);
-		break;
-	case PHY_INTERFACE_MODE_2500BASEX:
-		USE_SERDESMODE(1, SERDES_2500BASEX);
-		break;
-	case PHY_INTERFACE_MODE_1000BASEX:
-	case PHY_INTERFACE_MODE_SGMII:
-		USE_SERDESMODE(1, SERDES_1000BASEX);
-		break;
-	case PHY_INTERFACE_MODE_100BASEX:
-		USE_SERDESMODE(1, SERDES_100FX);
-		break;
-	default:
-		dev_err(gsw->dev, "Incompatible SFP module inserted\n");
-		return -EINVAL;
-	}
-
-	rtk_sdsMode_set(1, gsw->sds1mode);
-	return 0;
-}'''
-
-new = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+new_block = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
 {
 	struct rtk_gsw *gsw = upstream;
 
@@ -261,21 +249,27 @@ new = r'''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_
 
 	rtk_sdsMode_set(1, gsw->sds1mode);
 	return 0;
-}'''
+}
+'''
 
-if old in s:
-    s = s.replace(old, new, 1)
-    p.write_text(s)
-    print("rtl837x_sfp_module_insert patched")
-else:
-    print("target function block not found", file=sys.stderr)
+pattern = re.compile(r"static\s+int\s+rtl837x_sfp_module_insert\b[^{]*\{.*?\}\s*\n?", re.S)
+
+if not pattern.search(s):
+    print("rtl837x_sfp_module_insert not found", file=sys.stderr)
     sys.exit(1)
+
+s = pattern.sub(new_block, s)
+p.write_text(s)
+print("rtl837x_sfp_module_insert patched successfully")
 PY
 
-  grep -n "rtl837x_sfp_module_insert" "$RTL837X_MDIO_C" || true
+  echo "verify rtl837x_mdio.c:"
+  grep -n "rtl837x_sfp_module_insert\|sfp_parse_support" "$RTL837X_MDIO_C" || true
 else
   echo "rtl837x_mdio.c not found, skip patch"
 fi
 
-# 刷新配置
-make defconfig
+#========================================
+# 8. 结束
+#========================================
+echo "===== finish diy-script.sh ====="
