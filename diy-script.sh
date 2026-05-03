@@ -181,6 +181,109 @@ else
   echo "rtl8261d Makefile not found, skip rtl8261d fix"
 fi
 
+################################
+# 9. 修复 rtl837x-gsw 在 Linux 6.18 下的 sfp_parse_support 声明问题
+################################
+
+echo "===== patch rtl837x-gsw for kernel 6.18 ====="
+
+RTL837X_MAKEFILE="$(find package feeds -maxdepth 6 -type f -path '*/rtl837x-gsw/Makefile' | head -n 1 || true)"
+
+if [ -n "${RTL837X_MAKEFILE:-}" ] && [ -f "$RTL837X_MAKEFILE" ]; then
+  echo "Found rtl837x-gsw Makefile: $RTL837X_MAKEFILE"
+
+  python3 - "$RTL837X_MAKEFILE" <<'PY'
+from pathlib import Path
+import sys
+
+mf = Path(sys.argv[1])
+text = mf.read_text()
+
+begin = "define Build/Prepare"
+end = "endef"
+
+# 清理之前已注入过的同类补丁块
+if begin in text:
+    lines = text.splitlines()
+    out = []
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith(begin):
+            block = []
+            j = i
+            while j < len(lines):
+                block.append(lines[j])
+                if lines[j].strip() == end:
+                    break
+                j += 1
+            joined = "\n".join(block)
+            if "rtl837x_mdio.c" in joined and "sfp_parse_support" in joined:
+                i = j + 1
+                continue
+        out.append(lines[i])
+        i += 1
+    text = "\n".join(out) + "\n"
+
+marker = "define Build/Compile"
+block = r'''
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	python3 - "$(PKG_BUILD_DIR)/src/rtl837x_mdio.c" <<'EOF'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+inc = "#include <linux/sfp.h>\n"
+decl = """
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,18,0)
+extern void sfp_parse_support(struct sfp_bus *bus,
+			      const struct sfp_eeprom_id *id,
+			      unsigned long *support,
+			      unsigned long *interfaces);
+#endif
+
+"""
+
+# 补头文件
+if "#include <linux/sfp.h>" not in s:
+    anchor = "#include <linux/version.h>\n"
+    if anchor in s:
+        s = s.replace(anchor, anchor + inc, 1)
+    else:
+        s = inc + s
+
+# 补前向声明
+if "extern void sfp_parse_support(" not in s:
+    anchor2 = "#include <linux/sfp.h>\n"
+    if anchor2 in s:
+        s = s.replace(anchor2, anchor2 + decl, 1)
+    else:
+        s = decl + s
+
+p.write_text(s)
+print("rtl837x_mdio.c patched")
+EOF
+	grep -n "sfp_parse_support" $(PKG_BUILD_DIR)/src/rtl837x_mdio.c || true
+endef
+'''.lstrip("\n")
+
+if marker not in text:
+    print("Build/Compile marker not found in rtl837x-gsw Makefile", file=sys.stderr)
+    sys.exit(1)
+
+if block not in text:
+    text = text.replace(marker, block + "\n" + marker, 1)
+
+mf.write_text(text)
+PY
+
+  echo "===== rtl837x-gsw Makefile preview ====="
+  sed -n '1,160p' "$RTL837X_MAKEFILE" || true
+else
+  echo "rtl837x-gsw Makefile not found, skip rtl837x-gsw fix"
+fi
 
 # 刷新配置
 make defconfig
