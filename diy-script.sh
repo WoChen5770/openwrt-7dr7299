@@ -181,13 +181,14 @@ else
   echo "rtl8261d Makefile not found, skip rtl8261d fix"
 fi
 
-# 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
-mkdir -p package/kernel/rtl837x-gsw/patches
 
+# 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
+rm -f package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch
+mkdir -p package/kernel/rtl837x-gsw/patches
 cat > package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch <<'EOF'
 --- a/src/rtl837x_mdio.c
 +++ b/src/rtl837x_mdio.c
-@@ -508,31 +508,28 @@ static void rtl837x_sfp_detach(void *upstream, struct sfp_bus *bus)
+@@ -498,31 +498,28 @@ static void rtl837x_sfp_detach(void *upstream, struct sfp_bus *bus)
  
  static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
  {
