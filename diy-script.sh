@@ -183,62 +183,7 @@ fi
 
 
 # 修复 rtl837x-gsw 在 Linux 6.18 下的 SFP 兼容问题
-rm -f package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch
-mkdir -p package/kernel/rtl837x-gsw/patches
-cat > package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch <<'EOF'
---- a/src/rtl837x_mdio.c
-+++ b/src/rtl837x_mdio.c
-@@ -498,31 +498,28 @@ static void rtl837x_sfp_detach(void *upstream, struct sfp_bus *bus)
- 
- static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
- {
- 	struct rtk_gsw *gsw = upstream;
--	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
--	DECLARE_PHY_INTERFACE_MASK(interfaces);
--	phy_interface_t iface;
- 
--	sfp_parse_support(gsw->sfp_bus, id, support, interfaces);
--	iface = sfp_select_interface(gsw->sfp_bus, support);
--
--	dev_info(gsw->dev, "%s SFP module inserted\n", phy_modes(iface));
--
--	switch (iface) {
--	case PHY_INTERFACE_MODE_10GBASER:
--		USE_SERDESMODE(1, SERDES_10GR);
-+	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\n",
-+		 gsw->sds1mode);
-+
-+	switch (gsw->sds1mode) {
-+	case SERDES_10GR:
-+		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\n");
- 		break;
--	case PHY_INTERFACE_MODE_2500BASEX:
--		USE_SERDESMODE(1, SERDES_2500BASEX);
-+	case SERDES_2500BASEX:
-+		dev_info(gsw->dev, "Using 2500base-x mode for SFP module\n");
- 		break;
--	case PHY_INTERFACE_MODE_1000BASEX:
--	case PHY_INTERFACE_MODE_SGMII:
--		USE_SERDESMODE(1, SERDES_1000BASEX);
-+	case SERDES_1000BASEX:
-+	case SERDES_SG:
-+		dev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\n");
- 		break;
--	case PHY_INTERFACE_MODE_100BASEX:
--		USE_SERDESMODE(1, SERDES_100FX);
-+	case SERDES_100FX:
-+		dev_info(gsw->dev, "Using 100base-fx mode for SFP module\n");
- 		break;
- 	default:
--		dev_err(gsw->dev, "Incompatible SFP module inserted\n");
-+		dev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\n",
-+			gsw->sds1mode);
- 		return -EINVAL;
- 	}
- 
- 	rtk_sdsMode_set(1, gsw->sds1mode);
- 	return 0;
-EOF
+
 
 # 刷新配置
 make defconfig
