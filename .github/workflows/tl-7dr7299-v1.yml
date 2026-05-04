@@ -122,19 +122,22 @@ jobs:
       shell: bash
       run: |
         set -euxo pipefail
-        cd $OPENWRT_PATH
+        cd "$OPENWRT_PATH"
         PATCH_FILE="package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch"
         SRC_TAR="$(find dl -maxdepth 1 -type f -name 'switch-rtl837x-*.tar.zst' | head -n1)"
         echo "==== PATCH FILE: $PATCH_FILE ===="
         test -f "$PATCH_FILE"
-        nl -ba "$PATCH_FILE" | sed -n '1,200p'
+        nl -ba "$PATCH_FILE" | sed -n '1,120p'
         echo "==== SOURCE TAR: $SRC_TAR ===="
         test -n "$SRC_TAR"
         test -f "$SRC_TAR"
         echo "==== FILE LIST IN TAR ===="
         tar --zstd -tf "$SRC_TAR" | grep 'rtl837x_mdio.c' || true
+        SRC_IN_TAR="$(tar --zstd -tf "$SRC_TAR" | grep '/src/rtl837x_mdio.c$' | head -n1)"
+        echo "==== SOURCE FILE IN TAR: $SRC_IN_TAR ===="
+        test -n "$SRC_IN_TAR"
         echo "==== ORIGINAL rtl837x_mdio.c FROM TAR ===="
-        tar --zstd -xOf "$SRC_TAR" 'src/rtl837x_mdio.c' | nl -ba | sed -n '1,260p'
+        tar --zstd -xOf "$SRC_TAR" "$SRC_IN_TAR" | nl -ba | sed -n '480,540p'
     
     - name: Quick verify rtl837x-gsw patch and compile
       shell: bash
