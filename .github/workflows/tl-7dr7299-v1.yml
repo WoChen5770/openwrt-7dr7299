@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: https://github.com/1715173329/imoutowrt.git
+  REPO_URL: https://github.com/WoChen5770/imoutowrt.git
   REPO_BRANCH: master-mediatek-7dr7299
   CONFIG_FILE: configs/tl-7dr7299-v1.config
   DIY_SCRIPT: diy-script.sh
