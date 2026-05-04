@@ -118,39 +118,33 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Print rtl837x_mdio.c and patch before build
+    - name: Remove broken rtl837x patch and verify build
       shell: bash
       run: |
         set -euxo pipefail
         cd "$OPENWRT_PATH"
         PATCH_FILE="package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch"
-        SRC_TAR="$(find dl -maxdepth 1 -type f -name 'switch-rtl837x-*.tar.zst' | head -n1)"
-        echo "==== PATCH FILE: $PATCH_FILE ===="
-        test -f "$PATCH_FILE"
-        nl -ba "$PATCH_FILE" | sed -n '1,120p'
-        echo "==== SOURCE TAR: $SRC_TAR ===="
-        test -n "$SRC_TAR"
-        test -f "$SRC_TAR"
-        echo "==== FILE LIST IN TAR ===="
-        tar --zstd -tf "$SRC_TAR" | grep 'rtl837x_mdio.c' || true
-        SRC_IN_TAR="$(tar --zstd -tf "$SRC_TAR" | grep '/src/rtl837x_mdio.c$' | head -n1)"
-        echo "==== SOURCE FILE IN TAR: $SRC_IN_TAR ===="
-        test -n "$SRC_IN_TAR"
-        echo "==== ORIGINAL rtl837x_mdio.c FROM TAR ===="
-        tar --zstd -xOf "$SRC_TAR" "$SRC_IN_TAR" | nl -ba | sed -n '480,540p'
-    
-    - name: Quick verify rtl837x-gsw patch and compile
-      shell: bash
-      run: |
-        set -euxo pipefail
-        cd $OPENWRT_PATH
+        echo "==== REMOVE BROKEN PATCH IF EXISTS ===="
+        rm -f "$PATCH_FILE" || true
+        ls package/kernel/rtl837x-gsw/patches || true
         make package/kernel/rtl837x-gsw/clean V=s
         make package/kernel/rtl837x-gsw/prepare V=s
         FILE="$(find build_dir -type f -path '*switch-rtl837x-*/src/rtl837x_mdio.c' | head -n1)"
         echo "Patched file: $FILE"
         test -n "$FILE"
-        grep -n "SFP module inserted, use configured serdes mode" "$FILE"
-        sed -n '500,540p' "$FILE"
+        test -f "$FILE"
+        echo "==== SEARCH SYMBOLS IN PREPARED SOURCE ===="
+        grep -nE 'rtl837x_sfp_module_insert|sfp_parse_support|sfp_select_interface' "$FILE" || true
+        echo "==== CONTEXT AROUND rtl837x_sfp_module_insert ===="
+        LINE="$(grep -n 'rtl837x_sfp_module_insert' "$FILE" | head -n1 | cut -d: -f1 || true)"
+        if [ -n "${LINE:-}" ]; then
+          START=$((LINE-15))
+          END=$((LINE+50))
+          [ "$START" -lt 1 ] && START=1
+          nl -ba "$FILE" | sed -n "${START},${END}p"
+        else
+          echo "rtl837x_sfp_module_insert not found in prepared source"
+        fi
         make package/kernel/rtl837x-gsw/compile V=s -j1
 
     - name: Compile Firmware(开始编译固件)
