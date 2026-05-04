@@ -114,7 +114,7 @@ jobs:
     - name: Download DL Package(下载DL软件包)
       run: |
         cd $OPENWRT_PATH
-        make download -j8
+        make download -j8 V=s
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
