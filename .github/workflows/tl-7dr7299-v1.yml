@@ -118,6 +118,20 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+    - name: Quick verify rtl837x-gsw patch and compile
+      shell: bash
+      run: |
+        set -euxo pipefail
+        cd $OPENWRT_PATH
+        make package/kernel/rtl837x-gsw/clean V=s
+        make package/kernel/rtl837x-gsw/prepare V=s
+        FILE="$(find build_dir -type f -path '*switch-rtl837x-*/src/rtl837x_mdio.c' | head -n1)"
+        echo "Patched file: $FILE"
+        test -n "$FILE"
+        grep -n "SFP module inserted, use configured serdes mode" "$FILE"
+        sed -n '500,540p' "$FILE"
+        make package/kernel/rtl837x-gsw/compile V=s -j1
+
     - name: Compile Firmware(开始编译固件)
       id: compile
       run: |
