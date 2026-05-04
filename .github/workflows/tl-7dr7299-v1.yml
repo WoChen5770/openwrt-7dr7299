@@ -118,33 +118,130 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Remove broken rtl837x patch and verify build
+    - name: Fix rtl837x SFP API and build rtl837x-gsw
       shell: bash
       run: |
         set -euxo pipefail
         cd "$OPENWRT_PATH"
+    
         PATCH_FILE="package/kernel/rtl837x-gsw/patches/999-fix-kernel-6.18-sfp-api.patch"
-        echo "==== REMOVE BROKEN PATCH IF EXISTS ===="
+    
+        echo "==== 1. remove old broken patch if exists ===="
         rm -f "$PATCH_FILE" || true
-        ls package/kernel/rtl837x-gsw/patches || true
+        ls -la package/kernel/rtl837x-gsw || true
+        ls -la package/kernel/rtl837x-gsw/patches || true
+    
+        echo "==== 2. extract rtl837x_mdio.c from source tarball to package overlay ===="
+        SRC_TAR="$(find dl -maxdepth 1 -type f -name 'switch-rtl837x-*.tar.zst' | head -n1)"
+        test -n "$SRC_TAR"
+        test -f "$SRC_TAR"
+        echo "SOURCE TAR: $SRC_TAR"
+    
+        SRC_IN_TAR="$(tar --zstd -tf "$SRC_TAR" | grep '/src/rtl837x_mdio.c$' | head -n1)"
+        test -n "$SRC_IN_TAR"
+        echo "SOURCE FILE IN TAR: $SRC_IN_TAR"
+    
+        mkdir -p package/kernel/rtl837x-gsw/src
+        tar --zstd -xOf "$SRC_TAR" "$SRC_IN_TAR" > package/kernel/rtl837x-gsw/src/rtl837x_mdio.c
+        test -f package/kernel/rtl837x-gsw/src/rtl837x_mdio.c
+    
+        echo "==== 3. patch rtl837x_sfp_module_insert in overlay source ===="
+        python3 - "package/kernel/rtl837x-gsw/src/rtl837x_mdio.c" <<'PY'
+        from pathlib import Path
+        import sys
+    
+        p = Path(sys.argv[1])
+        s = p.read_text()
+    
+        start_marker = 'static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)'
+        end_marker = 'static void rtl837x_sfp_module_remove(void *upstream)'
+    
+        start = s.find(start_marker)
+        if start < 0:
+            print("ERROR: rtl837x_sfp_module_insert not found", file=sys.stderr)
+            sys.exit(1)
+    
+        end = s.find(end_marker, start)
+        if end < 0:
+            print("ERROR: rtl837x_sfp_module_remove not found", file=sys.stderr)
+            sys.exit(1)
+    
+        new_func = '''static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+        {
+        	struct rtk_gsw *gsw = upstream;
+    
+        	dev_info(gsw->dev, "SFP module inserted, use configured serdes mode: %d\\n",
+        		 gsw->sds1mode);
+    
+        	switch (gsw->sds1mode) {
+        	case SERDES_10GR:
+        		dev_info(gsw->dev, "Using 10g-kr/10gbase-r mode for SFP module\\n");
+        		break;
+        	case SERDES_2500BASEX:
+        		dev_info(gsw->dev, "Using 2500base-x mode for SFP module\\n");
+        		break;
+        	case SERDES_1000BASEX:
+        	case SERDES_SG:
+        		dev_info(gsw->dev, "Using 1000base-x/sgmii mode for SFP module\\n");
+        		break;
+        	case SERDES_100FX:
+        		dev_info(gsw->dev, "Using 100base-fx mode for SFP module\\n");
+        		break;
+        	default:
+        		dev_err(gsw->dev, "Unsupported configured sds1mode for SFP: %d\\n",
+        			gsw->sds1mode);
+        		return -EINVAL;
+        	}
+    
+        	rtk_sdsMode_set(1, gsw->sds1mode);
+        	return 0;
+        }
+    
+        '''
+    
+        s = s[:start] + new_func + s[end:]
+        p.write_text(s)
+        print("rtl837x_sfp_module_insert patched successfully")
+        PY
+    
+        echo "==== 4. verify overlay source ===="
+        OVERLAY_FILE="package/kernel/rtl837x-gsw/src/rtl837x_mdio.c"
+        grep -n 'rtl837x_sfp_module_insert' "$OVERLAY_FILE"
+        grep -n 'configured serdes mode' "$OVERLAY_FILE"
+        ! grep -n 'sfp_parse_support' "$OVERLAY_FILE"
+        ! grep -n 'sfp_select_interface' "$OVERLAY_FILE"
+    
+        LINE="$(grep -n 'rtl837x_sfp_module_insert' "$OVERLAY_FILE" | head -n1 | cut -d: -f1)"
+        START=$((LINE))
+        END=$((LINE+35))
+        nl -ba "$OVERLAY_FILE" | sed -n "${START},${END}p"
+    
+        echo "==== 5. prepare host tools ===="
+        make tools/sed/compile V=s
+        make tools/install V=s -j"$(nproc)"
+        make toolchain/install V=s -j"$(nproc)"
+    
+        echo "==== 6. clean and prepare rtl837x-gsw ===="
         make package/kernel/rtl837x-gsw/clean V=s
         make package/kernel/rtl837x-gsw/prepare V=s
+    
+        echo "==== 7. verify prepared source ===="
         FILE="$(find build_dir -type f -path '*switch-rtl837x-*/src/rtl837x_mdio.c' | head -n1)"
-        echo "Patched file: $FILE"
+        echo "Prepared file: $FILE"
         test -n "$FILE"
         test -f "$FILE"
-        echo "==== SEARCH SYMBOLS IN PREPARED SOURCE ===="
-        grep -nE 'rtl837x_sfp_module_insert|sfp_parse_support|sfp_select_interface' "$FILE" || true
-        echo "==== CONTEXT AROUND rtl837x_sfp_module_insert ===="
-        LINE="$(grep -n 'rtl837x_sfp_module_insert' "$FILE" | head -n1 | cut -d: -f1 || true)"
-        if [ -n "${LINE:-}" ]; then
-          START=$((LINE-15))
-          END=$((LINE+50))
-          [ "$START" -lt 1 ] && START=1
-          nl -ba "$FILE" | sed -n "${START},${END}p"
-        else
-          echo "rtl837x_sfp_module_insert not found in prepared source"
-        fi
+    
+        grep -n 'rtl837x_sfp_module_insert' "$FILE"
+        grep -n 'configured serdes mode' "$FILE"
+        ! grep -n 'sfp_parse_support' "$FILE"
+        ! grep -n 'sfp_select_interface' "$FILE"
+    
+        LINE="$(grep -n 'rtl837x_sfp_module_insert' "$FILE" | head -n1 | cut -d: -f1)"
+        START=$((LINE))
+        END=$((LINE+35))
+        nl -ba "$FILE" | sed -n "${START},${END}p"
+    
+        echo "==== 8. compile rtl837x-gsw ===="
         make package/kernel/rtl837x-gsw/compile V=s -j1
 
     - name: Compile Firmware(开始编译固件)
