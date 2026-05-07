@@ -41,18 +41,11 @@ else
 fi
 
 # 修改版本为编译日期
-date_version=$(date +"%y.%m.%d")
-if [ -n "$DEFAULT_SETTINGS_FILE" ] && [ -f "$DEFAULT_SETTINGS_FILE" ]; then
-  orig_version=$(grep 'DISTRIB_REVISION=' "$DEFAULT_SETTINGS_FILE" | awk -F "'" '{print $2}' || true)
-  if [ -n "$orig_version" ]; then
-    echo "[diy] 修改固件版本: ${orig_version} -> R${date_version} by WoChen5770"
-    sed -i "s/${orig_version}/R${date_version} by WoChen5770/g" "$DEFAULT_SETTINGS_FILE"
-  else
-    echo "[diy] DISTRIB_REVISION 未找到，跳过版本补丁"
-  fi
-else
-  echo "[diy] DEFAULT_SETTINGS_FILE 未设置或文件不存在，跳过版本补丁"
-fi
+DATE_VERSION="$(date +%Y.%m.%d)"
+echo "[diy] 修改版本为编译日期: $DATE_VERSION"
+sed -i "s/DISTRIB_RELEASE='%V'/DISTRIB_RELEASE='${DATE_VERSION} by JayCQ'/g" package/base-files/files/etc/openwrt_release
+sed -i "s/DISTRIB_DESCRIPTION='%D %V %C'/DISTRIB_DESCRIPTION='%D ${DATE_VERSION} by JayCQ %C'/g" package/base-files/files/etc/openwrt_release
+
 
 # 修补 filogic 6.18 内核配置，启用 BPF 相关选项
 KCFG="target/linux/mediatek/filogic/config-6.18"
