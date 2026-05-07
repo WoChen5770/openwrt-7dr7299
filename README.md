@@ -1,11 +1,11 @@
-<img width="768" src="https://github.com/openwrt/openwrt/blob/main/include/logo.png"/>
+<img src="https://avatars.githubusercontent.com/u/53193414?s=200&v=4" alt="logo" width="200" height="200" align="right">
 
-## 特别提示 (#特别提示-)
+## 特别提示 
 
 - **本人不对任何人因使用本固件所遭受的任何理论或实际的损失承担责任！**
 - **本固件禁止用于任何商业用途，请务必严格遵守国家互联网使用相关法律规定！**
 
-## 项目说明 [![](https://img.shields.io/badge/-项目基本介绍-FFFFFF.svg)](#项目说明-)
+## 项目说明 
 
 - 固件机型：`TP-Link TL-7DR7299 v1`
 - 固件默认管理地址：`192.168.123.1`
