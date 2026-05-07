@@ -15,7 +15,3 @@
 - 源码分支：`master-mediatek-7dr7299`
 - 在线编译工作流：[`.github/workflows/tl-7dr7299-v1.yml`](.github/workflows/tl-7dr7299-v1.yml)
 - 专用配置文件：[configs/TL-7DR7299.txt](configs/TL-7DR7299.txt)（机型基础配置） + [configs/CUSTOMIZE.txt](configs/CUSTOMIZE.txt)（功能定制配置）
-
-<a href="#readme">
-<img src="https://img.shields.io/badge/-返回顶部-FFFFFF.svg" title="返回顶部" align="right"/>
-</a>
