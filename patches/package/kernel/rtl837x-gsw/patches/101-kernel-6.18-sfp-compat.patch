@@ -1,0 +1,83 @@
+--- a/src/rtl837x_mdio.c
++++ b/src/rtl837x_mdio.c
+@@ -565,37 +565,50 @@
+ 
+ static int rtl837x_sfp_module_insert(void *upstream, const struct sfp_eeprom_id *id)
+ {
+-	struct rtk_gsw *gsw = upstream;
+-	__ETHTOOL_DECLARE_LINK_MODE_MASK(support) = { 0, };
+-	DECLARE_PHY_INTERFACE_MASK(interfaces);
+-	phy_interface_t iface;
+-
+-	sfp_parse_support(gsw->sfp_bus, id, support, interfaces);
+-	iface = sfp_select_interface(gsw->sfp_bus, support);
+-
+-	dev_info(gsw->dev, "%s SFP module inserted\n", phy_modes(iface));
+-
+-	switch (iface) {
+-	case PHY_INTERFACE_MODE_10GBASER:
+-		gsw->sds1mode = SERDES_10GR;
+-		break;
+-	case PHY_INTERFACE_MODE_2500BASEX:
+-		gsw->sds1mode = SERDES_2500BASEX;
+-		break;
+-	case PHY_INTERFACE_MODE_1000BASEX:
+-	case PHY_INTERFACE_MODE_SGMII:
+-		gsw->sds1mode = SERDES_1000BASEX;
+-		break;
+-	case PHY_INTERFACE_MODE_100BASEX:
+-		gsw->sds1mode = SERDES_100FX;
+-		break;
+-	default:
+-		dev_err(gsw->dev, "Incompatible SFP module inserted\n");
+-		return -EINVAL;
+-	}
++        struct rtk_gsw *gsw = upstream;
++        phy_interface_t iface;
+ 
+-	rtk_sdsMode_set(1, gsw->sds1mode);
+-	return 0;
++        switch (gsw->sds1mode) {
++        case SERDES_10GR:
++                iface = PHY_INTERFACE_MODE_10GBASER;
++                break;
++        case SERDES_2500BASEX:
++                iface = PHY_INTERFACE_MODE_2500BASEX;
++                break;
++        case SERDES_1000BASEX:
++                iface = PHY_INTERFACE_MODE_1000BASEX;
++                break;
++        case SERDES_100FX:
++                iface = PHY_INTERFACE_MODE_100BASEX;
++                break;
++        default:
++                dev_err(gsw->dev, "Unsupported preset SFP serdes mode: %d\n", gsw->sds1mode);
++                return -EINVAL;
++        }
++
++        dev_info(gsw->dev, "%s SFP module inserted, using preset serdes mode\n", phy_modes(iface));
++
++        switch (iface) {
++        case PHY_INTERFACE_MODE_10GBASER:
++                gsw->sds1mode = SERDES_10GR;
++                break;
++        case PHY_INTERFACE_MODE_2500BASEX:
++                gsw->sds1mode = SERDES_2500BASEX;
++                break;
++        case PHY_INTERFACE_MODE_1000BASEX:
++        case PHY_INTERFACE_MODE_SGMII:
++                gsw->sds1mode = SERDES_1000BASEX;
++                break;
++        case PHY_INTERFACE_MODE_100BASEX:
++                gsw->sds1mode = SERDES_100FX;
++                break;
++        default:
++                dev_err(gsw->dev, "Incompatible SFP module inserted\n");
++                return -EINVAL;
++        }
++
++        rtk_sdsMode_set(1, gsw->sds1mode);
++        return 0;
+ }
+ 
+ static void rtl837x_sfp_module_remove(void *upstream)

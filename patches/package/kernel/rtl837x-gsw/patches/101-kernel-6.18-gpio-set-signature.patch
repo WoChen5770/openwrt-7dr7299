@@ -1,0 +1,22 @@
+--- a/src/rtl837x_gpio.c
++++ b/src/rtl837x_gpio.c
+@@ -20,7 +20,7 @@
+     return 0;
+ }
+ 
+-static void rtl837x_gpio_set(struct gpio_chip *gc, unsigned offset, int value)
++static int rtl837x_gpio_set(struct gpio_chip *gc, unsigned offset, int value)
+ {
+     struct rtl837x_gpio *gpio = gpiochip_get_data(gc);
+     rtk_gpio_level_t val = value == 1 ? GPIO_LEVEL_HIGH : GPIO_LEVEL_LOW;
+@@ -28,6 +28,9 @@
+     if (ret)
+     {
+         dev_err(gpio->gsw->dev, "gpio %d: failed to write gpio val %x", offset, ret);
++        return -EIO;
+     }
++
++    return 0;
+ }
+ 
+ static int rtl837x_gpio_get(struct gpio_chip *gc, unsigned offset)

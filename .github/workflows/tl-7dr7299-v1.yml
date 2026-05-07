@@ -11,8 +11,9 @@ permissions:
 env:
   REPO_URL: https://github.com/WoChen5770/imoutowrt.git
   REPO_BRANCH: master-mediatek-7dr7299
-  CONFIG_FILE: configs/tl-7dr7299-v1.config
-  DIY_SCRIPT: diy-script.sh
+  CONFIG_BASE: configs/MTK-7DR7299.txt
+  CONFIG_CUSTOM: configs/CUSTOMIZE.txt
+  DIY_SCRIPT: scripts/diy-script.sh
   CACHE_TOOLCHAIN: false
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
@@ -84,11 +85,11 @@ jobs:
     - name: Load Custom Configuration(加载自定义配置)
       run: |
         [ -e files ] && mv files $OPENWRT_PATH/files
-        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE $OPENWRT_PATH/.config
+        [ -e $CONFIG_BASE ] && cat $CONFIG_BASE > $OPENWRT_PATH/.config
+        [ -e $CONFIG_CUSTOM ] && cat $CONFIG_CUSTOM >> $OPENWRT_PATH/.config
         [ -e "$GITHUB_WORKSPACE/$DIY_SCRIPT" ] && chmod +x "$GITHUB_WORKSPACE/$DIY_SCRIPT" && cd "$OPENWRT_PATH" && "$GITHUB_WORKSPACE/$DIY_SCRIPT"
         cd $OPENWRT_PATH
         make defconfig
-        make target/linux/clean
 
     - name: Generate Variables(生成变量)
       run: |

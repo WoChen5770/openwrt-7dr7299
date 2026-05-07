@@ -1,0 +1,14 @@
+--- a/src/rtl8261d.h
++++ b/src/rtl8261d.h
+@@ -44,1 +44,1 @@
+-int rtl8261x_set_loopback(struct phy_device *phydev, bool enable);
++int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode);
+--- a/src/rtl8261d_main.c
++++ b/src/rtl8261d_main.c
+@@ -1222,4 +1222,5 @@
+-int rtl8261x_set_loopback(struct phy_device *phydev, bool enable)
++int rtl8261x_set_loopback(struct phy_device *phydev, bool enable, int loopback_mode)
+ {
++	(void)loopback_mode;
+         return Nic_Rtl8261X_loopback_set(phydev, enable);
+ }
