@@ -64,4 +64,25 @@ else
   echo "[diy] 内核配置未找到: $KCFG"
 fi
 
+
+# 修补 rtl837x-gsw
+FILE="package/kernel/rtl837x-gsw/Makefile"
+if grep -q '^define Build/Prepare$' "$FILE"; then
+	echo "已存在 Build/Prepare，跳过插入: $FILE"
+else
+	TMP="$(mktemp)" || exit 1
+	awk '
+	/^define Build\/Compile$/{
+		print "define Build/Prepare"
+		print "\t$(call Build/Prepare/Default)"
+		print "\tfind $(PKG_BUILD_DIR) -type f \\( -name \"*.c\" -o -name \"*.h\" \\) -exec perl -pi -e '\''s/\\r//g'\'' {} +"
+		print "\tfind $(PKG_BUILD_DIR) -type f \\( -name \"*.c\" -o -name \"*.h\" \\) -exec sed -i '\''s|#include <string.h>|#include <linux/string.h>|g'\'' {} +"
+		print "endef"
+		print ""
+	}
+	{print}
+	' "$FILE" > "$TMP" && mv "$TMP" "$FILE"
+	echo "已插入 Build/Prepare 到: $FILE"
+fi
+
 echo "=== diy-script: 完成 ==="
