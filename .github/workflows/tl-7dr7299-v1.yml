@@ -11,7 +11,7 @@ permissions:
 env:
   REPO_URL: https://github.com/WoChen5770/imoutowrt.git
   REPO_BRANCH: master-mediatek-7dr7299
-  CONFIG_BASE: configs/MTK-7DR7299.txt
+  CONFIG_BASE: configs/TL-7DR7299.txt
   CONFIG_CUSTOM: configs/CUSTOMIZE.txt
   DIY_SCRIPT: scripts/diy-script.sh
   CACHE_TOOLCHAIN: true
